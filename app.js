@@ -455,20 +455,18 @@ async function handleFetchBill() {
       }
     }
 
-    // Use a public CORS proxy to bypass browser restrictions since the Edge Function failed to deploy
-    const proxyUrl = 'https://corsproxy.io/?';
-    const targetUrl = encodeURIComponent(APICLUB_URL);
+    // Call our local PHP proxy to bypass CORS
+    const proxyUrl = 'proxy.php';
 
-    const res = await fetch(proxyUrl + targetUrl, {
+    const res = await fetch(proxyUrl, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': APICLUB_KEY
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify(payload)
     });
     
-    // allorigins will forward the response as-is in raw mode.
+    // The PHP proxy forwards the response as-is in raw mode.
     // If it fails to parse as JSON, handle it gracefully.
     let data;
     try {
