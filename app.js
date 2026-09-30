@@ -452,19 +452,19 @@ async function fetchBill(){
       return;
     }
     
-    if(data.status==='success'||data.code===200){
-      const r = data.response || data;
+    if (data.status === 'success' || data.status === 1 || data.code === 200 || data.data) {
+      const r = data.data || data.response || data.billAmount || data;
       state.bill = {
-        name: r.consumer_name || "N/A",
+        name: r.customer_name || r.consumer_name || r.name || "N/A",
         address: "India",
         consumer: r.consumer_no || consInput.value.trim(),
         biller: r.operator_name || op.operator_name,
         billNo: "TX-"+Date.now().toString().slice(-6),
         billDate: r.bill_date || nowStr(),
-        dueDate: r.due_date || nowStr(),
-        current: Number(r.bill_amount) || 0,
+        dueDate: r.due_date || r.bill_due_date || nowStr(),
+        current: Number(r.bill_amount || r.amount || r.dueAmount) || 0,
         arrears: 0,
-        total: Number(r.bill_amount) || 0
+        total: Number(r.bill_amount || r.amount || r.dueAmount) || 0
       };
       go("details");
     }else{
