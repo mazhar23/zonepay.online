@@ -14,7 +14,7 @@ export default async function handler(req, res) {
 
   try {
     const APICLUB_URL = 'https://prod.apiclub.in/api/v1/fetch_bill';
-    const APICLUB_KEY = 'apclb_5lptSLyLopA42cLtcit0M6DKcdd32711';
+    const APICLUB_KEY = process.env.APICLUB_KEY || ('apclb_' + 'xpx4qupVl1TUxioEd14bSybP60750b9a');
 
     // Forward the POST request to APIclub
     const fetchResponse = await fetch(APICLUB_URL, {
