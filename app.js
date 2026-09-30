@@ -440,7 +440,17 @@ async function fetchBill(){
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    const data = await res.json();
+    
+    let data;
+    const textData = await res.text();
+    try {
+      data = JSON.parse(textData);
+    } catch(e) {
+      msgDiv.innerHTML=`<p class="fail">❌ Server Error: Endpoint returned HTML (likely 404 Not Found) instead of JSON. Make sure Vercel/cPanel is fully deployed.</p>`;
+      btn.disabled=false;
+      btn.innerText="Fetch Bill";
+      return;
+    }
     
     if(data.status==='success'||data.code===200){
       const r = data.response || data;
