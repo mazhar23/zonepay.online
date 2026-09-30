@@ -455,8 +455,8 @@ async function handleFetchBill() {
       }
     }
 
-    // Call our local PHP proxy to bypass CORS
-    const proxyUrl = 'proxy.php';
+    // Call Vercel Serverless Function proxy to bypass CORS
+    const proxyUrl = '/api/fetch-bill';
 
     const res = await fetch(proxyUrl, {
       method: 'POST',
