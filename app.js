@@ -1,4 +1,9 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+import { electricityOperators, UP_DISCOMS } from './operators.js';
+
+// APIclub Configuration
+const APICLUB_KEY = 'apclb_5lptSLyLopA42cLtcit0M6DKcdd32711';
+const APICLUB_URL = 'https://api.apiclub.in/api/v1/fetch_bill';
 
 // Supabase Configuration
 const supabaseUrl = 'https://ivvtryddebbizflmvdzz.supabase.co';
@@ -376,9 +381,113 @@ document.addEventListener('DOMContentLoaded', initializeApp);
 // --- Missing UI stubs added to prevent crashes ---
 window.render = function render() {
   const app = document.getElementById("app");
-  if (app) {
-    app.innerHTML = `<h1>Current Page: ${window.state.page}</h1>`;
+  if (!app) return;
+  if (window.state.page === "bill") {
+    renderBillPage(app);
+  } else {
+    app.innerHTML = `<h1>Current Page: ${window.state.page}</h1>
+    <button onclick="go('bill')" style="padding:10px; margin:10px; cursor:pointer;">Go to Bill Fetch</button>`;
   }
+}
+
+window.handleFetchBill = async function() {
+  const opSelect = document.getElementById('operatorCode');
+  const consInput = document.getElementById('consumerNo');
+  const resultDiv = document.getElementById('billResult');
+  
+  if (!opSelect.value || !consInput.value) {
+    alert("Please enter operator and consumer number");
+    return;
+  }
+  
+  resultDiv.innerHTML = "Fetching bill...";
+  
+  try {
+    const payload = {
+      consumer_no: consInput.value,
+      operator: opSelect.value
+    };
+    
+    const op = electricityOperators.find(o => o.operator_code === opSelect.value);
+    if (op && op.params && op.params.length > 0) {
+      if (op.params[0] === 'Discom') {
+        payload.params = document.getElementById('extraParamDiscom').value;
+      } else {
+        payload.params = document.getElementById('extraParam').value;
+      }
+    }
+
+    const res = await fetch(APICLUB_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': APICLUB_KEY
+      },
+      body: JSON.stringify(payload)
+    });
+    
+    const data = await res.json();
+    resultDiv.innerHTML = `<pre style="white-space: pre-wrap; word-wrap: break-word;">${JSON.stringify(data, null, 2)}</pre>`;
+  } catch (err) {
+    resultDiv.innerHTML = `<span style="color:red">Error: ${err.message}</span>`;
+  }
+}
+
+window.updateBillParams = function() {
+  const code = document.getElementById('operatorCode').value;
+  const op = electricityOperators.find(o => o.operator_code === code);
+  const textContainer = document.getElementById('extraParamContainer');
+  const discomContainer = document.getElementById('discomContainer');
+  
+  textContainer.style.display = 'none';
+  discomContainer.style.display = 'none';
+  
+  if (op && op.params && op.params.length > 0) {
+    if (op.params[0] === 'Discom') {
+      discomContainer.style.display = 'block';
+    } else {
+      textContainer.style.display = 'block';
+      document.getElementById('extraParamLabel').innerText = op.params[0] + ':';
+    }
+  }
+}
+
+function renderBillPage(app) {
+  let options = electricityOperators.map(o => `<option value="${o.operator_code}">${o.operator_name}</option>`).join('');
+  let discoms = UP_DISCOMS.map(d => `<option value="${d}">${d}</option>`).join('');
+  
+  app.innerHTML = `
+    <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <h2>Electricity Bill Fetch</h2>
+      <div style="margin-bottom: 15px;">
+        <label style="display:block; margin-bottom: 5px;">Operator:</label>
+        <select id="operatorCode" onchange="window.updateBillParams()" style="width:100%; padding: 8px;">
+          <option value="">-- Select Operator --</option>
+          ${options}
+        </select>
+      </div>
+      <div style="margin-bottom: 15px;">
+        <label style="display:block; margin-bottom: 5px;">Consumer Number:</label>
+        <input type="text" id="consumerNo" placeholder="Enter Consumer Number" style="width:100%; padding: 8px; box-sizing: border-box;">
+      </div>
+      <div id="extraParamContainer" style="margin-bottom: 15px; display:none;">
+        <label id="extraParamLabel" style="display:block; margin-bottom: 5px;">Extra Param:</label>
+        <input type="text" id="extraParam" placeholder="Enter value" style="width:100%; padding: 8px; box-sizing: border-box;">
+      </div>
+      <div id="discomContainer" style="margin-bottom: 15px; display:none;">
+        <label style="display:block; margin-bottom: 5px;">UP Discom:</label>
+        <select id="extraParamDiscom" style="width:100%; padding: 8px;">
+          ${discoms}
+        </select>
+      </div>
+      <button onclick="window.handleFetchBill()" style="padding: 10px 15px; background: #007bff; color: white; border: none; cursor: pointer;">Fetch Bill</button>
+      <button onclick="go('home')" style="padding: 10px 15px; background: #6c757d; color: white; border: none; cursor: pointer; margin-left: 10px;">Back</button>
+      
+      <div id="billResult" style="margin-top: 20px; padding: 15px; background: #f8f9fa; border: 1px solid #ddd; min-height: 100px; border-radius: 4px;">
+        Bill details will appear here...
+      </div>
+    </div>
+  `;
 }
 
 function home() { console.log("Navigated to home"); render(); }
