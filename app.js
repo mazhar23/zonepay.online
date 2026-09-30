@@ -1,4 +1,4 @@
-const { createClient } = require('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2');
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 
 // Supabase Configuration
 const supabaseUrl = 'https://ivvtryddebbizflmvdzz.supabase.co';
@@ -373,7 +373,26 @@ async function logout() {
 // Initialize the app when DOM is ready
 document.addEventListener('DOMContentLoaded', initializeApp);
 
-// Export for use in other files
-if (typeof module !== 'undefined') {
-  module.exports = { initializeApp, saveUsers, saveTx, saveWalletTx, saveActivity, saveCurrentUserState };
+// --- Missing UI stubs added to prevent crashes ---
+window.render = function render() {
+  const app = document.getElementById("app");
+  if (app) {
+    app.innerHTML = `<h1>Current Page: ${window.state.page}</h1>`;
+  }
 }
+
+function home() { console.log("Navigated to home"); render(); }
+function login() { console.log("Navigated to login"); render(); }
+function dashboard() { console.log("Navigated to dashboard"); render(); }
+function billPage() { console.log("Navigated to bill"); render(); }
+function details() { console.log("Navigated to details"); render(); }
+function payment() { console.log("Navigated to payment"); render(); }
+function receipt() { console.log("Navigated to receipt"); render(); }
+function admin() { console.log("Navigated to admin"); render(); }
+function walletPage() { console.log("Navigated to wallet"); render(); }
+function network() { console.log("Navigated to network"); render(); }
+function commissionPage() { console.log("Navigated to commission"); render(); }
+function activityPage() { console.log("Navigated to activity"); render(); }
+
+// Export for use in other files (if using a bundler/Node in the future)
+export { initializeApp, saveUsers, saveTx, saveWalletTx, saveActivity, saveCurrentUserState };
