@@ -13,7 +13,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const APICLUB_URL = 'https://api.apiclub.in/api/v1/fetch_bill';
+    const APICLUB_URL = 'https://prod.apiclub.in/api/v1/fetch_bill';
     const APICLUB_KEY = 'apclb_5lptSLyLopA42cLtcit0M6DKcdd32711';
 
     // Forward the POST request to APIclub

@@ -18,7 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 $data = file_get_contents('php://input');
 
 // 2. Define the exact APIclub endpoint and API key
-$url = 'https://api.apiclub.in/api/v1/fetch_bill';
+$url = 'https://prod.apiclub.in/api/v1/fetch_bill';
 $apiKey = 'apclb_5lptSLyLopA42cLtcit0M6DKcdd32711';
 
 // 3. Set up cURL to forward the request
