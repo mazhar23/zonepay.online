@@ -464,7 +464,8 @@ async function fetchBill(){
         dueDate: r.due_date || r.bill_due_date || nowStr(),
         current: Number(r.bill_amount || r.amount || r.dueAmount) || 0,
         arrears: 0,
-        total: Number(r.bill_amount || r.amount || r.dueAmount) || 0
+        total: Number(r.bill_amount || r.amount || r.dueAmount) || 0,
+        _raw: JSON.stringify(data)
       };
       go("details");
     }else{
@@ -498,6 +499,9 @@ function details(){
         <tr><th>Arrears</th><td>${money(b.arrears)}</td></tr>
         <tr><th>Total Payable</th><td><b>${money(b.total)}</b></td></tr>
       </table>
+      <div style="margin-top:20px; padding:10px; background:#111; color:#0f0; font-family:monospace; font-size:11px; word-break:break-all; border-radius:4px;">
+        <strong>DEBUG RAW JSON:</strong><br>${b._raw || 'No raw data available'}
+      </div>
       <div class="form-actions">
         <button class="btn primary" onclick="go('payment')">Continue to Payment</button>
         <button class="btn secondary" onclick="go('bill')">Change Consumer ID</button>
