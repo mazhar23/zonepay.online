@@ -453,19 +453,18 @@ async function fetchBill(){
     }
     
     if (data.status === 'success' || data.status === 1 || data.code === 200 || data.data) {
-      const r = data.data || data.response || data.billAmount || data;
+      const r = data.response || data.data || data.billAmount || data;
       state.bill = {
         name: r.customer_name || r.consumer_name || r.name || "N/A",
-        address: "India",
-        consumer: r.consumer_no || consInput.value.trim(),
+        address: r.customer_address || r.address || "India",
+        consumer: r.customer_id || r.consumer_no || consInput.value.trim(),
         biller: r.operator_name || op.operator_name,
-        billNo: "TX-"+Date.now().toString().slice(-6),
+        billNo: r.request_id || "TX-"+Date.now().toString().slice(-6),
         billDate: r.bill_date || nowStr(),
         dueDate: r.due_date || r.bill_due_date || nowStr(),
-        current: Number(r.bill_amount || r.amount || r.dueAmount) || 0,
+        current: Number(r.due_amount || r.bill_amount || r.amount || r.dueAmount) || 0,
         arrears: 0,
-        total: Number(r.bill_amount || r.amount || r.dueAmount) || 0,
-        _raw: JSON.stringify(data)
+        total: Number(r.due_amount || r.bill_amount || r.amount || r.dueAmount) || 0
       };
       go("details");
     }else{
@@ -499,9 +498,6 @@ function details(){
         <tr><th>Arrears</th><td>${money(b.arrears)}</td></tr>
         <tr><th>Total Payable</th><td><b>${money(b.total)}</b></td></tr>
       </table>
-      <div style="margin-top:20px; padding:10px; background:#111; color:#0f0; font-family:monospace; font-size:11px; word-break:break-all; border-radius:4px;">
-        <strong>DEBUG RAW JSON:</strong><br>${b._raw || 'No raw data available'}
-      </div>
       <div class="form-actions">
         <button class="btn primary" onclick="go('payment')">Continue to Payment</button>
         <button class="btn secondary" onclick="go('bill')">Change Consumer ID</button>
