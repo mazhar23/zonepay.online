@@ -144,8 +144,8 @@ function allDownline(u){
   return out;
 }
 function canTransferTo(from,to){if(!from||!to||from.id===to.id)return false;if(from.role==="ADMIN")return true;return to.parent===from.id}
-function toggleSidebar(){state.sidebarOpen=!state.sidebarOpen;render()}
-function closeSidebar(){state.sidebarOpen=false;render()}
+function toggleSidebar(){state.sidebarOpen=!state.sidebarOpen;renderPage()}
+function closeSidebar(){state.sidebarOpen=false;renderPage()}
 
 function addActivity(action,detail){
   const u=currentUser();
@@ -217,15 +217,19 @@ function shell(body){
   else publicShell(body);
 }
 
-function go(p){
-  state.page=p;
-  state.sidebarOpen=false;
+function renderPage() {
   const map={
     home,login,dashboard,bill:billPage,details,payment,receipt,
     admin,wallet:walletPage,network,powerAdmin:()=>{state.page="network";network()},
     commission:commissionPage,activity:activityPage
   };
-  (map[p]||home)();
+  (map[state.page]||home)();
+}
+
+function go(p){
+  state.page=p;
+  state.sidebarOpen=false;
+  renderPage();
 }
 
 /* ---------- Auth ---------- */
@@ -430,7 +434,7 @@ async function fetchBill(){
   }
 
   try{
-    const proxyUrl = '/api/fetch-bill';
+    const proxyUrl = window.location.hostname.includes('vercel.app') ? '/api/fetch-bill' : 'proxy.php';
     const res = await fetch(proxyUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
