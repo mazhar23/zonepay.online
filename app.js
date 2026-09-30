@@ -10,6 +10,11 @@ const supabaseUrl = 'https://ivvtryddebbizflmvdzz.supabase.co';
 const supabaseKey = 'sb_publishable_MHevw7ZOWkf8vocACWhzeQ_dViUPHdU';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+// ============================================================
+// Expose ALL interactive functions to window so inline onclick works
+// (ES modules are scoped, so we must attach to window explicitly)
+// ============================================================
+
 // Initialize app and load data from Supabase
 async function initializeApp() {
   try {
@@ -37,13 +42,7 @@ async function initializeApp() {
       });
     }
     
-    // Load other data from Supabase
-    await loadDataFromSupabase();
-    
-    // Load current user state from Supabase persisted state
-    await loadCurrentUserState();
-    
-    // Initialize state
+    // Initialize state FIRST so loadDataFromSupabase can use it
     window.state = {
       page: "home",
       logged: false,
@@ -56,13 +55,24 @@ async function initializeApp() {
       activity: [],
       filters: { q: "", type: "", direction: "", status: "", from: "", to: "", level: "" }
     };
+
+    // Load other data from Supabase
+    await loadDataFromSupabase();
+    
+    // Load current user state from Supabase persisted state
+    await loadCurrentUserState();
     
     // Render the app
     render();
     
   } catch (error) {
     console.error('App initialization error:', error);
-    // Initialize demo users as fallback
+    // Initialize state for fallback
+    window.state = window.state || {
+      page: "home", logged: false, currentUserId: null, bill: null,
+      payment: null, sidebarOpen: false, tx: [], walletTx: [],
+      activity: [], filters: { q: "", type: "", direction: "", status: "", from: "", to: "", level: "" }
+    };
     window.users = await initializeDemoUsers();
     await loadDemoData();
     render();
@@ -375,65 +385,135 @@ async function logout() {
   go("home");
 }
 
-// Initialize the app when DOM is ready
-document.addEventListener('DOMContentLoaded', initializeApp);
-
-// --- Missing UI stubs added to prevent crashes ---
-window.render = function render() {
+// ============================================================
+//  RENDER — routes to the correct page view
+// ============================================================
+function render() {
   const app = document.getElementById("app");
   if (!app) return;
-  if (window.state.page === "bill") {
-    renderBillPage(app);
-  } else {
-    app.innerHTML = `<h1>Current Page: ${window.state.page}</h1>
-    <button onclick="go('bill')" style="padding:10px; margin:10px; cursor:pointer;">Go to Bill Fetch</button>`;
+
+  switch (window.state.page) {
+    case "bill":
+      renderBillPage(app);
+      break;
+    default:
+      app.innerHTML = `
+        <div style="font-family:'Inter',sans-serif; max-width:600px; margin:40px auto; text-align:center;">
+          <h1 style="margin-bottom:20px;">EazyPay — ${window.state.page.charAt(0).toUpperCase() + window.state.page.slice(1)}</h1>
+          <button onclick="window.go('bill')" style="padding:12px 24px; font-size:16px; background:#007bff; color:#fff; border:none; border-radius:6px; cursor:pointer;">
+            ⚡ Fetch Electricity Bill
+          </button>
+        </div>`;
+      break;
   }
 }
 
-window.handleFetchBill = async function() {
+// ============================================================
+//  BILL FETCH — calls APIclub via Supabase Edge Function proxy
+// ============================================================
+async function handleFetchBill() {
   const opSelect = document.getElementById('operatorCode');
   const consInput = document.getElementById('consumerNo');
   const resultDiv = document.getElementById('billResult');
+  const fetchBtn  = document.getElementById('fetchBillBtn');
   
-  if (!opSelect.value || !consInput.value) {
-    alert("Please enter operator and consumer number");
+  if (!opSelect.value || !consInput.value.trim()) {
+    alert("Please select an operator and enter a consumer number.");
     return;
   }
   
-  resultDiv.innerHTML = "Fetching bill...";
+  // Show loading state
+  fetchBtn.disabled = true;
+  fetchBtn.textContent = "Fetching…";
+  resultDiv.innerHTML = `<div style="text-align:center;padding:30px;color:#666;">
+    <div style="font-size:24px;margin-bottom:10px;">⏳</div>
+    Fetching your bill from the provider…
+  </div>`;
   
   try {
+    // Build payload
     const payload = {
-      consumer_no: consInput.value,
+      consumer_no: consInput.value.trim(),
       operator: opSelect.value
     };
     
+    // Check for extra params (Mobile number, Billing Unit, Discom)
     const op = electricityOperators.find(o => o.operator_code === opSelect.value);
     if (op && op.params && op.params.length > 0) {
       if (op.params[0] === 'Discom') {
         payload.params = document.getElementById('extraParamDiscom').value;
       } else {
-        payload.params = document.getElementById('extraParam').value;
+        const extraVal = document.getElementById('extraParam').value.trim();
+        if (!extraVal) {
+          alert(`Please enter: ${op.params[0]}`);
+          fetchBtn.disabled = false;
+          fetchBtn.textContent = "Fetch Bill";
+          resultDiv.innerHTML = "Bill details will appear here…";
+          return;
+        }
+        payload.params = extraVal;
       }
     }
 
-    const res = await fetch(APICLUB_URL, {
+    // Call the Supabase Edge Function proxy (bypasses CORS)
+    const proxyUrl = `${supabaseUrl}/functions/v1/fetch-bill`;
+    const res = await fetch(proxyUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': APICLUB_KEY
+        'Authorization': `Bearer ${supabaseKey}`
       },
       body: JSON.stringify(payload)
     });
     
     const data = await res.json();
-    resultDiv.innerHTML = `<pre style="white-space: pre-wrap; word-wrap: break-word;">${JSON.stringify(data, null, 2)}</pre>`;
+    
+    if (data.status === 'success' && data.response) {
+      const r = data.response;
+      resultDiv.innerHTML = `
+        <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;">
+          <div style="background:#28a745;color:#fff;padding:12px 16px;font-weight:600;">
+            ✅ Bill Fetched Successfully
+          </div>
+          <div style="padding:16px;">
+            <table style="width:100%;border-collapse:collapse;">
+              ${r.consumer_name ? `<tr><td style="padding:8px 0;color:#666;">Consumer Name</td><td style="padding:8px 0;font-weight:600;">${r.consumer_name}</td></tr>` : ''}
+              ${r.consumer_no ? `<tr><td style="padding:8px 0;color:#666;">Consumer No.</td><td style="padding:8px 0;font-weight:600;">${r.consumer_no}</td></tr>` : ''}
+              ${r.bill_amount != null ? `<tr><td style="padding:8px 0;color:#666;">Bill Amount</td><td style="padding:8px 0;font-weight:700;color:#d32f2f;font-size:18px;">₹${Number(r.bill_amount).toLocaleString('en-IN')}</td></tr>` : ''}
+              ${r.due_date ? `<tr><td style="padding:8px 0;color:#666;">Due Date</td><td style="padding:8px 0;font-weight:600;">${r.due_date}</td></tr>` : ''}
+              ${r.bill_date ? `<tr><td style="padding:8px 0;color:#666;">Bill Date</td><td style="padding:8px 0;">${r.bill_date}</td></tr>` : ''}
+              ${r.operator_name ? `<tr><td style="padding:8px 0;color:#666;">Operator</td><td style="padding:8px 0;">${r.operator_name}</td></tr>` : ''}
+            </table>
+          </div>
+        </div>
+        <details style="margin-top:12px;"><summary style="cursor:pointer;color:#666;font-size:13px;">Show raw API response</summary>
+          <pre style="white-space:pre-wrap;word-wrap:break-word;background:#f5f5f5;padding:12px;border-radius:4px;font-size:12px;margin-top:8px;">${JSON.stringify(data, null, 2)}</pre>
+        </details>`;
+    } else {
+      // Error from API
+      resultDiv.innerHTML = `
+        <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:16px;">
+          <div style="font-weight:600;color:#856404;margin-bottom:8px;">⚠️ ${data.message || 'Could not fetch bill'}</div>
+          <pre style="white-space:pre-wrap;word-wrap:break-word;font-size:12px;color:#666;">${JSON.stringify(data, null, 2)}</pre>
+        </div>`;
+    }
   } catch (err) {
-    resultDiv.innerHTML = `<span style="color:red">Error: ${err.message}</span>`;
+    resultDiv.innerHTML = `
+      <div style="background:#f8d7da;border:1px solid #f5c6cb;border-radius:8px;padding:16px;">
+        <div style="font-weight:600;color:#721c24;margin-bottom:8px;">❌ Network Error</div>
+        <div style="color:#721c24;">${err.message}</div>
+        <div style="margin-top:10px;font-size:13px;color:#666;">
+          This usually means the Supabase Edge Function proxy is not deployed yet.<br>
+          Please deploy the edge function first (see instructions).
+        </div>
+      </div>`;
+  } finally {
+    fetchBtn.disabled = false;
+    fetchBtn.textContent = "Fetch Bill";
   }
 }
 
-window.updateBillParams = function() {
+function updateBillParams() {
   const code = document.getElementById('operatorCode').value;
   const op = electricityOperators.find(o => o.operator_code === code);
   const textContainer = document.getElementById('extraParamContainer');
@@ -453,55 +533,82 @@ window.updateBillParams = function() {
 }
 
 function renderBillPage(app) {
-  let options = electricityOperators.map(o => `<option value="${o.operator_code}">${o.operator_name}</option>`).join('');
-  let discoms = UP_DISCOMS.map(d => `<option value="${d}">${d}</option>`).join('');
+  const options = electricityOperators.map(o => `<option value="${o.operator_code}">${o.operator_name}</option>`).join('');
+  const discoms = UP_DISCOMS.map(d => `<option value="${d}">${d}</option>`).join('');
   
   app.innerHTML = `
-    <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-      <h2>Electricity Bill Fetch</h2>
-      <div style="margin-bottom: 15px;">
-        <label style="display:block; margin-bottom: 5px;">Operator:</label>
-        <select id="operatorCode" onchange="window.updateBillParams()" style="width:100%; padding: 8px;">
+    <div style="font-family:'Inter',sans-serif; max-width:600px; margin:0 auto; padding:24px;">
+      <h2 style="margin-bottom:20px;">⚡ Electricity Bill Fetch</h2>
+
+      <div style="margin-bottom:16px;">
+        <label style="display:block;margin-bottom:6px;font-weight:600;font-size:14px;">Operator:</label>
+        <select id="operatorCode" onchange="window.updateBillParams()" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:14px;">
           <option value="">-- Select Operator --</option>
           ${options}
         </select>
       </div>
-      <div style="margin-bottom: 15px;">
-        <label style="display:block; margin-bottom: 5px;">Consumer Number:</label>
-        <input type="text" id="consumerNo" placeholder="Enter Consumer Number" style="width:100%; padding: 8px; box-sizing: border-box;">
+
+      <div style="margin-bottom:16px;">
+        <label style="display:block;margin-bottom:6px;font-weight:600;font-size:14px;">Consumer Number:</label>
+        <input type="text" id="consumerNo" placeholder="Enter Consumer Number" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:14px;box-sizing:border-box;">
       </div>
-      <div id="extraParamContainer" style="margin-bottom: 15px; display:none;">
-        <label id="extraParamLabel" style="display:block; margin-bottom: 5px;">Extra Param:</label>
-        <input type="text" id="extraParam" placeholder="Enter value" style="width:100%; padding: 8px; box-sizing: border-box;">
+
+      <div id="extraParamContainer" style="margin-bottom:16px;display:none;">
+        <label id="extraParamLabel" style="display:block;margin-bottom:6px;font-weight:600;font-size:14px;">Extra Param:</label>
+        <input type="text" id="extraParam" placeholder="Enter value" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:14px;box-sizing:border-box;">
       </div>
-      <div id="discomContainer" style="margin-bottom: 15px; display:none;">
-        <label style="display:block; margin-bottom: 5px;">UP Discom:</label>
-        <select id="extraParamDiscom" style="width:100%; padding: 8px;">
+
+      <div id="discomContainer" style="margin-bottom:16px;display:none;">
+        <label style="display:block;margin-bottom:6px;font-weight:600;font-size:14px;">UP Discom:</label>
+        <select id="extraParamDiscom" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:14px;">
           ${discoms}
         </select>
       </div>
-      <button onclick="window.handleFetchBill()" style="padding: 10px 15px; background: #007bff; color: white; border: none; cursor: pointer;">Fetch Bill</button>
-      <button onclick="go('home')" style="padding: 10px 15px; background: #6c757d; color: white; border: none; cursor: pointer; margin-left: 10px;">Back</button>
+
+      <div style="display:flex;gap:10px;margin-bottom:20px;">
+        <button id="fetchBillBtn" onclick="window.handleFetchBill()" style="padding:12px 24px;background:#007bff;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:15px;font-weight:600;">
+          Fetch Bill
+        </button>
+        <button onclick="window.go('home')" style="padding:12px 24px;background:#6c757d;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:15px;">
+          Back
+        </button>
+      </div>
       
-      <div id="billResult" style="margin-top: 20px; padding: 15px; background: #f8f9fa; border: 1px solid #ddd; min-height: 100px; border-radius: 4px;">
-        Bill details will appear here...
+      <div id="billResult" style="padding:20px;background:#f8f9fa;border:1px solid #ddd;min-height:100px;border-radius:8px;color:#666;">
+        Bill details will appear here…
       </div>
     </div>
   `;
 }
 
-function home() { console.log("Navigated to home"); render(); }
-function login() { console.log("Navigated to login"); render(); }
-function dashboard() { console.log("Navigated to dashboard"); render(); }
-function billPage() { console.log("Navigated to bill"); render(); }
-function details() { console.log("Navigated to details"); render(); }
-function payment() { console.log("Navigated to payment"); render(); }
-function receipt() { console.log("Navigated to receipt"); render(); }
-function admin() { console.log("Navigated to admin"); render(); }
-function walletPage() { console.log("Navigated to wallet"); render(); }
-function network() { console.log("Navigated to network"); render(); }
-function commissionPage() { console.log("Navigated to commission"); render(); }
-function activityPage() { console.log("Navigated to activity"); render(); }
+// Page stubs
+function home()           { render(); }
+function login()          { render(); }
+function dashboard()      { render(); }
+function billPage()       { render(); }
+function details()        { render(); }
+function payment()        { render(); }
+function receipt()        { render(); }
+function admin()          { render(); }
+function walletPage()     { render(); }
+function network()        { render(); }
+function commissionPage() { render(); }
+function activityPage()   { render(); }
+
+// ============================================================
+//  ATTACH EVERYTHING TO WINDOW (critical for inline onclick)
+// ============================================================
+window.go = go;
+window.render = render;
+window.doLogin = doLogin;
+window.logout = logout;
+window.toggleSidebar = toggleSidebar;
+window.closeSidebar = closeSidebar;
+window.handleFetchBill = handleFetchBill;
+window.updateBillParams = updateBillParams;
+
+// Initialize the app when DOM is ready
+document.addEventListener('DOMContentLoaded', initializeApp);
 
 // Export for use in other files (if using a bundler/Node in the future)
 export { initializeApp, saveUsers, saveTx, saveWalletTx, saveActivity, saveCurrentUserState };
