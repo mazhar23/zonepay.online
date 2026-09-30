@@ -455,21 +455,30 @@ async function handleFetchBill() {
       }
     }
 
-    // Call the Supabase Edge Function proxy (bypasses CORS)
-    const proxyUrl = `${supabaseUrl}/functions/v1/fetch-bill`;
-    const res = await fetch(proxyUrl, {
+    // Use a public CORS proxy to bypass browser restrictions since the Edge Function failed to deploy
+    const proxyUrl = 'https://corsproxy.io/?';
+    const targetUrl = encodeURIComponent(APICLUB_URL);
+
+    const res = await fetch(proxyUrl + targetUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${supabaseKey}`
+        'x-api-key': APICLUB_KEY
       },
       body: JSON.stringify(payload)
     });
     
-    const data = await res.json();
+    // allorigins will forward the response as-is in raw mode.
+    // If it fails to parse as JSON, handle it gracefully.
+    let data;
+    try {
+      data = await res.json();
+    } catch (parseError) {
+      throw new Error("Failed to parse API response. The proxy might be blocking the request or the API returned non-JSON data.");
+    }
     
-    if (data.status === 'success' && data.response) {
-      const r = data.response;
+    if (data.status === 'success' || data.code === 200) {
+      const r = data.response || data;
       resultDiv.innerHTML = `
         <div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;">
           <div style="background:#28a745;color:#fff;padding:12px 16px;font-weight:600;">
