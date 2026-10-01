@@ -434,7 +434,7 @@ async function fetchBill(){
   }
 
   try{
-    const proxyUrl = window.location.hostname.includes('vercel.app') ? '/api/fetch-bill' : 'proxy.php';
+    const proxyUrl = 'proxy.php';
     const res = await fetch(proxyUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
