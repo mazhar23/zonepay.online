@@ -1,7 +1,9 @@
 // Supabase Edge Function — proxies bill-fetch requests to APIclub
 // Deploy with: npx supabase functions deploy fetch-bill --project-ref ivvtryddebbizflmvdzz
 
-const APICLUB_KEY = 'apclb_5lptSLyLopA42cLtcit0M6DKcdd32711';
+// Set this as a Supabase secret, never in source:
+//   npx supabase secrets set APICLUB_KEY=...
+const APICLUB_KEY = Deno.env.get('APICLUB_KEY');
 const APICLUB_URL = 'https://api.apiclub.in/api/v1/fetch_bill';
 
 const corsHeaders = {
@@ -13,6 +15,13 @@ Deno.serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
+  }
+
+  if (!APICLUB_KEY) {
+    return new Response(
+      JSON.stringify({ status: 'error', message: 'Server not configured: APICLUB_KEY is missing' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
   }
 
   try {

@@ -19,7 +19,15 @@ $data = file_get_contents('php://input');
 
 // 2. Define the exact APIclub endpoint and API key
 $url = 'https://prod.apiclub.in/api/v1/fetch_bill';
-$apiKey = getenv('APICLUB_KEY') ?: ('apclb_' . 'xpx4qupVl1TUxioEd14bSybP60750b9a');
+
+// API key must be supplied by the server environment (cPanel env var APICLUB_KEY).
+// Never hardcode a fallback here.
+$apiKey = getenv('APICLUB_KEY');
+if (!$apiKey) {
+    http_response_code(500);
+    echo json_encode(['error' => 'Server not configured: APICLUB_KEY is missing']);
+    exit;
+}
 
 // 3. Set up cURL to forward the request
 $ch = curl_init($url);
