@@ -1,0 +1,8 @@
+# Server config containing secrets - uploaded manually, never commit
+.htaccess
+
+# Supabase CLI temp state
+supabase/.temp/
+
+# Node
+node_modules/
