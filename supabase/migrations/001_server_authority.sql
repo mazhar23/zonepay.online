@@ -411,8 +411,8 @@ BEGIN
                 ELSE 'R' END;
   v_id := v_prefix || lpad((nextval('app_user_id_seq'))::text, 4, '0');
 
-  INSERT INTO users (id, name, role, parent, balance, main_balance, approved, active, kyc, permissions, commission_rate)
-  VALUES (v_id, btrim(p_name), p_role, p_parent, 0, 0, false, false, 'PENDING',
+  INSERT INTO users (id, name, role, parent, username, balance, main_balance, approved, active, kyc, permissions, commission_rate)
+  VALUES (v_id, btrim(p_name), p_role, p_parent, lower(btrim(p_username)), 0, 0, false, false, 'PENDING',
           jsonb_build_object('bill', false, 'transfer', p_role <> 'RETAILER'), 0);
 
   INSERT INTO activities (id, user_id, user_name, user_role, action, detail)
@@ -612,8 +612,12 @@ BEGIN
     END IF;
 
     -- Link the app user to its auth account.
-    INSERT INTO users (id, name, role, parent, balance, main_balance, approved, active, kyc, auth_id, permissions, commission_rate)
-    VALUES (r.id, r.name, r.role, r.parent, r.balance, 0, r.approved, r.active, r.kyc, v_auth_id, r.perms::jsonb, 0)
+    -- username is carried alongside auth_id: it is NOT NULL UNIQUE, and it is
+    -- what the UI shows. Credentials still live only in auth.users.
+    INSERT INTO users (id, name, role, parent, balance, main_balance, approved, active, kyc,
+                       username, auth_id, permissions, commission_rate)
+    VALUES (r.id, r.name, r.role, r.parent, r.balance, 0, r.approved, r.active, r.kyc,
+            r.username, v_auth_id, r.perms::jsonb, 0)
     ON CONFLICT (id) DO UPDATE
       SET auth_id     = EXCLUDED.auth_id,
           name        = EXCLUDED.name,
