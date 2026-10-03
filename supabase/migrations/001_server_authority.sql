@@ -498,40 +498,46 @@ DROP POLICY IF EXISTS tx_read               ON transactions;
 DROP POLICY IF EXISTS wtx_read              ON wallet_transactions;
 DROP POLICY IF EXISTS act_read              ON activities;
 
+-- The set of user ids the caller is allowed to see: themselves, their entire
+-- downline, or everyone when they are an admin.
+--
+-- SECURITY DEFINER so it can read `users` without re-triggering RLS on itself,
+-- which would otherwise recurse. Resolves the caller from the JWT only, so a
+-- client cannot widen its own scope.
+CREATE OR REPLACE FUNCTION app_scope_ids()
+RETURNS SETOF text
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+  SELECT u.id FROM users u WHERE u.auth_id = auth.uid()
+  UNION
+  SELECT d.id
+    FROM users me
+    CROSS JOIN LATERAL app_downline(me.id) d
+   WHERE me.auth_id = auth.uid()
+  UNION
+  SELECT u.id FROM users u WHERE app_is_admin();
+$$;
+
 -- Self + downline + (admin sees all)
 CREATE POLICY users_read ON users FOR SELECT USING (
-  auth_id = auth.uid()
-  OR id IN (SELECT d.id FROM app_downline(users.id) d)
-  OR app_is_admin()
+  id IN (SELECT s.id FROM app_scope_ids() s)
 );
 
 -- Admin sees every transaction; others see their own and their downline's
 CREATE POLICY tx_read ON transactions FOR SELECT USING (
-  app_is_admin()
-  OR retailer_id IN (
-    SELECT u.id FROM users u
-    WHERE u.auth_id = auth.uid()
-       OR u.id IN (SELECT d.id FROM app_downline(users.id) d)
-  )
+  retailer_id IN (SELECT s.id FROM app_scope_ids() s)
 );
 
 -- Admin sees the whole ledger; others see only rows they are party to
 CREATE POLICY wtx_read ON wallet_transactions FOR SELECT USING (
-  app_is_admin()
-  OR user_id IN (
-    SELECT u.id FROM users u
-    WHERE u.auth_id = auth.uid()
-       OR u.id IN (SELECT d.id FROM app_downline(users.id) d)
-  )
+  user_id IN (SELECT s.id FROM app_scope_ids() s)
 );
 
 CREATE POLICY act_read ON activities FOR SELECT USING (
-  app_is_admin()
-  OR user_id IN (
-    SELECT u.id FROM users u
-    WHERE u.auth_id = auth.uid()
-       OR u.id IN (SELECT d.id FROM app_downline(users.id) d)
-  )
+  user_id IN (SELECT s.id FROM app_scope_ids() s)
 );
 
 -- ============================================================================
