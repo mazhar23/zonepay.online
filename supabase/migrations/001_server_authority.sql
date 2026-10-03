@@ -523,21 +523,21 @@ $$;
 
 -- Self + downline + (admin sees all)
 CREATE POLICY users_read ON users FOR SELECT USING (
-  id IN (SELECT s.id FROM app_scope_ids() s)
+  id IN (SELECT s.id FROM app_scope_ids() AS s(id))
 );
 
 -- Admin sees every transaction; others see their own and their downline's
 CREATE POLICY tx_read ON transactions FOR SELECT USING (
-  retailer_id IN (SELECT s.id FROM app_scope_ids() s)
+  retailer_id IN (SELECT s.id FROM app_scope_ids() AS s(id))
 );
 
 -- Admin sees the whole ledger; others see only rows they are party to
 CREATE POLICY wtx_read ON wallet_transactions FOR SELECT USING (
-  user_id IN (SELECT s.id FROM app_scope_ids() s)
+  user_id IN (SELECT s.id FROM app_scope_ids() AS s(id))
 );
 
 CREATE POLICY act_read ON activities FOR SELECT USING (
-  user_id IN (SELECT s.id FROM app_scope_ids() s)
+  user_id IN (SELECT s.id FROM app_scope_ids() AS s(id))
 );
 
 -- ============================================================================
