@@ -21,10 +21,13 @@ ALTER TABLE users DROP COLUMN IF EXISTS password;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_id uuid UNIQUE
   REFERENCES auth.users(id) ON DELETE CASCADE;
 
--- Balances must never be negative or NaN
+-- Balances must never be negative or NaN. Dropped first so re-running this
+-- file does not abort on "constraint already exists".
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_balance_nonneg;
 ALTER TABLE users ADD CONSTRAINT users_balance_nonneg CHECK (balance >= 0);
 
 -- Ledger integrity
+ALTER TABLE wallet_transactions DROP CONSTRAINT IF EXISTS wtx_amount_positive;
 ALTER TABLE wallet_transactions ADD CONSTRAINT wtx_amount_positive CHECK (amount > 0);
 
 -- Index the auth linkage
@@ -60,11 +63,26 @@ $$;
 -- Descendants of a user, at any depth (server-side hierarchy walk)
 CREATE OR REPLACE FUNCTION app_downline(p_user_id text)
 RETURNS TABLE(id text, name text, role text, parent text, balance numeric)
-LANGUAGE sql
+LANGUAGE plpgsql
 SECURITY DEFINER
 STABLE
 SET search_path = public
 AS $$
+DECLARE
+  v_caller text;
+  v_admin  boolean;
+BEGIN
+  -- Resolve the caller from the JWT only. Anonymous callers get nothing, and a
+  -- signed-in caller may only walk their own subtree; admins may walk anyone's.
+  -- Without this guard the function is an unauthenticated dump of the user tree.
+  SELECT u.id, (u.role = 'ADMIN') INTO v_caller, v_admin
+    FROM users u WHERE u.auth_id = auth.uid();
+
+  IF v_caller IS NULL OR (NOT v_admin AND v_caller <> p_user_id) THEN
+    RETURN;
+  END IF;
+
+  RETURN QUERY
   WITH RECURSIVE tree AS (
     SELECT u.id, u.name, u.role, u.parent, u.balance, 1 AS lvl
       FROM users u WHERE u.id = p_user_id
@@ -72,7 +90,9 @@ AS $$
     SELECT u.id, u.name, u.role, u.parent, u.balance, t.lvl + 1
       FROM users u JOIN tree t ON u.parent = t.id
   )
-  SELECT id, name, role, parent, balance FROM tree WHERE lvl > 1;
+  SELECT t.id, t.name, t.role, t.parent, t.balance
+    FROM tree t WHERE t.lvl > 1;
+END;
 $$;
 
 -- ============================================================================
@@ -631,7 +651,38 @@ BEGIN
 END $$;
 
 -- ============================================================================
--- 10. VERIFY
+-- 10. FUNCTION EXECUTION GRANTS
+--
+-- Postgres grants EXECUTE on new functions to PUBLIC by default, which would let
+-- a signed-out visitor call every RPC directly. Each function also re-checks
+-- auth internally, so this is defence in depth: reads stay available to both
+-- roles (RLS policies need app_scope_ids), money/profile writes become
+-- authenticated-only.
+-- ============================================================================
+
+REVOKE ALL ON FUNCTION app_pay_bill(text, text, numeric, text, text)            FROM PUBLIC;
+REVOKE ALL ON FUNCTION app_transfer(text, numeric)                              FROM PUBLIC;
+REVOKE ALL ON FUNCTION app_admin_create_balance(numeric)                        FROM PUBLIC;
+REVOKE ALL ON FUNCTION app_admin_debit(text, numeric, text)                     FROM PUBLIC;
+REVOKE ALL ON FUNCTION app_create_user(text, text, text, text)                   FROM PUBLIC;
+REVOKE ALL ON FUNCTION app_admin_set_user(text, text, text)                     FROM PUBLIC;
+REVOKE ALL ON FUNCTION app_downline(text)                                       FROM PUBLIC;
+
+GRANT EXECUTE ON FUNCTION app_pay_bill(text, text, numeric, text, text)         TO authenticated;
+GRANT EXECUTE ON FUNCTION app_transfer(text, numeric)                           TO authenticated;
+GRANT EXECUTE ON FUNCTION app_admin_create_balance(numeric)                     TO authenticated;
+GRANT EXECUTE ON FUNCTION app_admin_debit(text, numeric, text)                  TO authenticated;
+GRANT EXECUTE ON FUNCTION app_create_user(text, text, text, text)                TO authenticated;
+GRANT EXECUTE ON FUNCTION app_admin_set_user(text, text, text)                  TO authenticated;
+
+GRANT EXECUTE ON FUNCTION app_current_user()                                    TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION app_is_admin()                                        TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION app_scope_ids()                                       TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION app_downline(text)                                    TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION app_log(text, text)                                   TO authenticated;
+
+-- ============================================================================
+-- 11. VERIFY
 -- ============================================================================
 SELECT id, name, role, balance, approved, active,
        (auth_id IS NOT NULL) AS has_auth_account

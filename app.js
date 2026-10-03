@@ -780,11 +780,11 @@ const act = async (fn, msgId) => {
   if (!res.ok) { if (msg) msg.innerHTML = `<p class="fail">${esc(res.error)}</p>`; return; }
   if (msg) msg.innerHTML = '<p class="success">Updated.</p>';
 };
-const doToggleApproval     = (id, next) => act(() => toggleApproval(id, next));
-const doToggleActive       = (id, next) => act(() => toggleActive(id, next));
-const doToggleKyc          = (id, next) => act(() => toggleKyc(id, next));
-const doToggleBillPerm     = (id, next) => act(() => togglePermission(id, 'bill', next));
-const doToggleTransferPerm = (id, next) => act(() => togglePermission(id, 'transfer', next));
+function doToggleApproval(id, next) { return act(() => toggleApproval(id, next)); }
+function doToggleActive(id, next) { return act(() => toggleActive(id, next)); }
+function doToggleKyc(id, next) { return act(() => toggleKyc(id, next)); }
+function doToggleBillPerm(id, next) { return act(() => togglePermission(id, 'bill', next)); }
+function doToggleTransferPerm(id, next) { return act(() => togglePermission(id, 'transfer', next)); }
 
 /* ---------- transactions ---------- */
 

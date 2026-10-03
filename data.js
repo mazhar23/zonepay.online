@@ -2,7 +2,7 @@
 // Auth is Supabase Auth; every mutation goes through a SECURITY DEFINER RPC
 // that re-checks the caller's role server-side.
 
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm';
 
 const SUPABASE_URL = 'https://ivvtryddebbizflmvdzz.supabase.co';
 const SUPABASE_ANON = 'sb_publishable_MHevw7ZOWkf8vocACWhzeQ_dViUPHdU';
