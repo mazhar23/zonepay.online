@@ -571,95 +571,59 @@ $$;
 -- Supabase Auth stores a hash, never the password. The plaintext appears only
 -- inside this transaction and is never written to the users table.
 --
+-- auth.users has no unique index on email (Supabase enforces uniqueness in Go),
+-- so ON CONFLICT cannot target it. Look the row up first, then insert or update.
+--
 -- After running this you should NOT use these demo passwords in production.
 DO $$
 DECLARE
+  r        record;
   v_auth_id uuid;
 BEGIN
-  -- Admin
-  INSERT INTO auth.users
-    (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
-     raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
-     confirmation_token, email_change, email_change_token_new, recovery_token)
-  VALUES
-    ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated', 'authenticated',
-     'admin001@zonepay.online', crypt('admin123', gen_salt('bf')), now(),
-     '{"provider":"email","providers":["email"]}', '{"role":"ADMIN"}', now(), now(), '', '', '', '')
-  ON CONFLICT (email) DO UPDATE SET encrypted_password = EXCLUDED.encrypted_password
-  RETURNING id INTO v_auth_id;
+  FOR r IN
+    SELECT * FROM (VALUES
+      ('ADM001',     'EazyPay Power Admin',          'ADMIN',              NULL::text,    50000, 'admin001',    'admin123', true,  true,  'VERIFIED', '{"bill":true,"transfer":true}'),
+      ('SD001',      'Ahmedabad Super Distributor',  'SUPER DISTRIBUTOR',  'ADM001',     15000, 'super001',    '123456',   true,  true,  'VERIFIED', '{"bill":true,"transfer":true}'),
+      ('D001',       'Ahmedabad Distributor',        'DISTRIBUTOR',        'SD001',       5000, 'dist001',     '123456',   true,  true,  'VERIFIED', '{"bill":true,"transfer":true}'),
+      ('R001',       'Ahmedabad Retailer',           'RETAILER',           'D001',        2500, 'retailer001', '123456',   true,  true,  'VERIFIED', '{"bill":true,"transfer":false}'),
+      ('R002',       'Demo Retailer 2',              'RETAILER',           'D001',        1200, 'retailer002', '123456',   false, false, 'PENDING',  '{"bill":false,"transfer":false}')
+    ) AS t(id, name, role, parent, balance, username, password, approved, active, kyc, perms)
+  LOOP
+    -- Create the auth account if it is missing, otherwise refresh its password.
+    SELECT u.id INTO v_auth_id FROM auth.users u WHERE u.email = r.username || '@zonepay.online';
 
-  INSERT INTO users (id, name, role, parent, balance, main_balance, approved, active, kyc, auth_id, permissions, commission_rate)
-  VALUES ('ADM001','EazyPay Power Admin','ADMIN',NULL,50000,0,true,true,'VERIFIED',v_auth_id,
-          '{"bill":true,"transfer":true}',0)
-  ON CONFLICT (id) DO UPDATE SET auth_id = EXCLUDED.auth_id;
+    IF v_auth_id IS NULL THEN
+      INSERT INTO auth.users
+        (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+         raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+         confirmation_token, email_change, email_change_token_new, recovery_token)
+      VALUES
+        ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated', 'authenticated',
+         r.username || '@zonepay.online', crypt(r.password, gen_salt('bf')), now(),
+         '{"provider":"email","providers":["email"]}', jsonb_build_object('role', r.role),
+         now(), now(), '', '', '', '')
+      RETURNING id INTO v_auth_id;
+    ELSE
+      UPDATE auth.users
+         SET encrypted_password   = crypt(r.password, gen_salt('bf')),
+             email_confirmed_at   = now(),
+             confirmation_token   = ''
+       WHERE id = v_auth_id;
+    END IF;
 
-  -- Super distributor
-  INSERT INTO auth.users
-    (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
-     raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
-     confirmation_token, email_change, email_change_token_new, recovery_token)
-  VALUES
-    ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated', 'authenticated',
-     'super001@zonepay.online', crypt('123456', gen_salt('bf')), now(),
-     '{"provider":"email","providers":["email"]}', '{"role":"SUPER DISTRIBUTOR"}', now(), now(), '', '', '', '')
-  ON CONFLICT (email) DO UPDATE SET encrypted_password = EXCLUDED.encrypted_password
-  RETURNING id INTO v_auth_id;
-
-  INSERT INTO users (id, name, role, parent, balance, main_balance, approved, active, kyc, auth_id, permissions, commission_rate)
-  VALUES ('SD001','Ahmedabad Super Distributor','SUPER DISTRIBUTOR','ADM001',15000,0,true,true,'VERIFIED',v_auth_id,
-          '{"bill":true,"transfer":true}',0)
-  ON CONFLICT (id) DO UPDATE SET auth_id = EXCLUDED.auth_id;
-
-  -- Distributor
-  INSERT INTO auth.users
-    (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
-     raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
-     confirmation_token, email_change, email_change_token_new, recovery_token)
-  VALUES
-    ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated', 'authenticated',
-     'dist001@zonepay.online', crypt('123456', gen_salt('bf')), now(),
-     '{"provider":"email","providers":["email"]}', '{"role":"DISTRIBUTOR"}', now(), now(), '', '', '', '')
-  ON CONFLICT (email) DO UPDATE SET encrypted_password = EXCLUDED.encrypted_password
-  RETURNING id INTO v_auth_id;
-
-  INSERT INTO users (id, name, role, parent, balance, main_balance, approved, active, kyc, auth_id, permissions, commission_rate)
-  VALUES ('D001','Ahmedabad Distributor','DISTRIBUTOR','SD001',5000,0,true,true,'VERIFIED',v_auth_id,
-          '{"bill":true,"transfer":true}',0)
-  ON CONFLICT (id) DO UPDATE SET auth_id = EXCLUDED.auth_id;
-
-  -- Retailer (approved)
-  INSERT INTO auth.users
-    (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
-     raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
-     confirmation_token, email_change, email_change_token_new, recovery_token)
-  VALUES
-    ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated', 'authenticated',
-     'retailer001@zonepay.online', crypt('123456', gen_salt('bf')), now(),
-     '{"provider":"email","providers":["email"]}', '{"role":"RETAILER"}', now(), now(), '', '', '', '')
-  ON CONFLICT (email) DO UPDATE SET encrypted_password = EXCLUDED.encrypted_password
-  RETURNING id INTO v_auth_id;
-
-  INSERT INTO users (id, name, role, parent, balance, main_balance, approved, active, kyc, auth_id, permissions, commission_rate)
-  VALUES ('R001','Ahmedabad Retailer','RETAILER','D001',2500,0,true,true,'VERIFIED',v_auth_id,
-          '{"bill":true,"transfer":false}',0)
-  ON CONFLICT (id) DO UPDATE SET auth_id = EXCLUDED.auth_id;
-
-  -- Retailer (pending, cannot log in until approved)
-  INSERT INTO auth.users
-    (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
-     raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
-     confirmation_token, email_change, email_change_token_new, recovery_token)
-  VALUES
-    ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated', 'authenticated',
-     'retailer002@zonepay.online', crypt('123456', gen_salt('bf')), now(),
-     '{"provider":"email","providers":["email"]}', '{"role":"RETAILER"}', now(), now(), '', '', '', '')
-  ON CONFLICT (email) DO UPDATE SET encrypted_password = EXCLUDED.encrypted_password
-  RETURNING id INTO v_auth_id;
-
-  INSERT INTO users (id, name, role, parent, balance, main_balance, approved, active, kyc, auth_id, permissions, commission_rate)
-  VALUES ('R002','Demo Retailer 2','RETAILER','D001',1200,0,false,false,'PENDING',v_auth_id,
-          '{"bill":false,"transfer":false}',0)
-  ON CONFLICT (id) DO UPDATE SET auth_id = EXCLUDED.auth_id;
+    -- Link the app user to its auth account.
+    INSERT INTO users (id, name, role, parent, balance, main_balance, approved, active, kyc, auth_id, permissions, commission_rate)
+    VALUES (r.id, r.name, r.role, r.parent, r.balance, 0, r.approved, r.active, r.kyc, v_auth_id, r.perms::jsonb, 0)
+    ON CONFLICT (id) DO UPDATE
+      SET auth_id     = EXCLUDED.auth_id,
+          name        = EXCLUDED.name,
+          role        = EXCLUDED.role,
+          parent      = EXCLUDED.parent,
+          approved    = EXCLUDED.approved,
+          active      = EXCLUDED.active,
+          kyc         = EXCLUDED.kyc,
+          permissions = EXCLUDED.permissions;
+  END LOOP;
 END $$;
 
 -- ============================================================================
