@@ -10,6 +10,10 @@ import {
   allowedCreateRoles, validParentsForRole
 } from './data.js';
 
+import {
+  electricityOperators as OPERATORS, UP_DISCOMS
+} from './operators.js';
+
 const app = document.getElementById('app');
 const $ = id => document.getElementById(id);
 
@@ -220,20 +224,7 @@ function dashboard() {
     </div>`);
 }
 
-/* ---------- bill fetch (unchanged: hits proxy.php) ---------- */
-
-const OPERATORS = await (async () => {
-  const r = await fetch('operators.js');
-  const txt = await r.text();
-  return JSON.parse(txt.replace(/^\s*(const|var|let)\s+electricityOperators\s*=\s*/, '').replace(/;\s*$/, ''));
-})();
-
-const UP_DISCOMS = await (async () => {
-  const r = await fetch('operators.js');
-  const txt = await r.text();
-  const m = txt.match(/UP_DISCOMS\s*=\s*(\[[\s\S]*?\]);/);
-  return m ? JSON.parse(m[1]) : [];
-})();
+/* ---------- bill fetch (hits proxy.php) ---------- */
 
 function billPage() {
   const u = currentUser();
