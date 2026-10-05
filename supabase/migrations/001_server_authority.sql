@@ -94,7 +94,11 @@ BEGIN
     SELECT u.id, u.name, u.role, u.parent, u.balance, t.lvl + 1
       FROM users u JOIN tree t ON u.parent = t.id
   )
-  SELECT t.id, t.name, t.role, t.parent, t.balance
+  -- Cast to ::text explicitly: users.id/name/role/parent are varchar(255) and
+  -- this function is plpgsql, which enforces the declared return types. A
+  -- LANGUAGE sql body silently ignored the mismatch, so this only surfaced
+  -- once the auth guard moved this function to plpgsql.
+  SELECT t.id::text, t.name::text, t.role::text, t.parent::text, t.balance::numeric
     FROM tree t WHERE t.lvl > 1;
 END;
 $$;
