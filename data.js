@@ -155,12 +155,13 @@ export function allDownline(u) {
 // ---------------------------------------------------------------------------
 
 export async function payBill(bill) {
+  // Only the reference goes to the server. The amount is whatever
+  // proxy.php signed and the database stored, so it cannot be tampered with here.
+  if (!bill.billRef) return { ok: false, error: 'Fetch the bill before paying' };
   const rows = unwrap(await supabase.rpc('app_pay_bill', {
     p_consumer: bill.consumer,
     p_biller: bill.biller,
-    p_amount: bill.total,
-    p_bill_no: bill.billNo ?? null,
-    p_due_date: bill.dueDate ?? null
+    p_bill_ref: bill.billRef
   }));
   const r = rows?.[0];
   if (!r?.ok) return { ok: false, error: r?.error || 'Payment failed' };

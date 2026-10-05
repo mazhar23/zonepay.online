@@ -459,17 +459,33 @@ async function fetchBill() {
 
     if (data.status === 'success' || data.code === 200 || data.data || data.response) {
       const r = data.response || data.data || data;
+      // proxy.php only returns bill_ref once it has signed the amount and the
+      // database has stored it. Without a reference the bill is not payable.
+      if (!data.bill_ref) {
+        msgDiv.innerHTML = '<p class="fail">Bill fetched but could not be verified for payment. '
+          + 'Please fetch again, and tell your admin if it keeps happening.</p>';
+        btn.disabled = false; btn.innerText = 'Fetch Bill';
+        return;
+      }
+      // Prefer the signed amount proxy.php put at the top level. Reading the
+      // upstream fields instead could display a different figure from the one
+      // the server actually charges, which would make the receipt a lie.
+      const signed = Number(data.bill_amount);
+      const total = (Number.isFinite(signed) && signed > 0)
+        ? signed
+        : (Number(r.due_amount ?? r.bill_amount ?? r.amount ?? 0) || 0);
       state.bill = {
         name: r.customer_name || r.consumer_name || r.name || 'N/A',
         address: r.customer_address || r.address || 'India',
         consumer: r.customer_id || r.consumer_no || consumer,
-        biller: r.operator_name || op.operator_name,
+        biller: data.biller || r.operator_name || op.operator_name,
         billNo: r.bill_no || r.request_id || 'TX-' + Date.now().toString().slice(-6),
         billDate: r.bill_date || nowStr(),
         dueDate: r.due_date || r.bill_due_date || nowStr(),
-        current: Number(r.bill_amount ?? r.due_amount ?? r.amount ?? 0) || 0,
+        current: total,
         arrears: Number(r.arrears ?? 0) || 0,
-        total: Number(r.due_amount ?? r.bill_amount ?? r.amount ?? 0) || 0
+        total,
+        billRef: data.bill_ref
       };
       go('details');
     } else {
