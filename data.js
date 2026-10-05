@@ -108,6 +108,13 @@ export async function logActivity(action, detail) {
   } catch { /* logging must never break the user flow */ }
 }
 
+export async function changePassword(newPassword) {
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) return { ok: false, error: error.message };
+  await logActivity('CHANGE_PASSWORD', 'Password changed');
+  return { ok: true };
+}
+
 // ---------------------------------------------------------------------------
 // Reads — every one of these is narrowed by RLS on the server
 // ---------------------------------------------------------------------------

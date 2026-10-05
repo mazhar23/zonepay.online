@@ -46,7 +46,7 @@ Object.assign(window, {
   doToggleKyc, doToggleBillPerm, doToggleTransferPerm, doEditCommission,
   applyWalletFilters, applyBillFilters, exportWalletExcel, exportBillExcel,
   printBillTxn, downloadReceipt, shareWhatsApp, logout: doLogout, setup, doSetup,
-  doChangePassword, doSetCommission, refreshData
+  doChangePassword, refreshData
 });
 
 // Enter key support for forms
