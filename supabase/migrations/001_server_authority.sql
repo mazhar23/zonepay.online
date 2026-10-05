@@ -531,14 +531,14 @@ SECURITY DEFINER
 STABLE
 SET search_path = public
 AS $$
-  SELECT u.id FROM users u WHERE u.auth_id = auth.uid()
+  SELECT u.id::text FROM users u WHERE u.auth_id = auth.uid()
   UNION
-  SELECT d.id
+  SELECT d.id::text
     FROM users me
     CROSS JOIN LATERAL app_downline(me.id) d
    WHERE me.auth_id = auth.uid()
   UNION
-  SELECT u.id FROM users u WHERE app_is_admin();
+  SELECT u.id::text FROM users u WHERE app_is_admin();
 $$;
 
 -- Self + downline + (admin sees all)
@@ -584,6 +584,40 @@ BEGIN
   );
 END;
 $$;
+
+-- ============================================================================
+-- 8b. FIRST-TIME-SETUP LINKING
+--
+-- app_create_user only creates the profile row (no auth_id), because minting
+-- auth accounts requires the admin API. The user later claims the account
+-- through "First Time Setup", which calls supabase.auth.signUp(). That insert
+-- into auth.users must be linked back to the waiting profile, otherwise
+-- loadMe() finds no users row and setup dead-ends at "username not found".
+--
+-- Matching is on the email local part == username. The `auth_id IS NULL` guard
+-- is load-bearing: it stops anyone from hijacking an account that has already
+-- been claimed by signing up with a taken username.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  UPDATE users
+     SET auth_id = NEW.id,
+         updated_at = now()
+   WHERE lower(username) = lower(split_part(NEW.email, '@', 1))
+     AND auth_id IS NULL;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- ============================================================================
 -- 9. SEED: create auth accounts + link them to app users

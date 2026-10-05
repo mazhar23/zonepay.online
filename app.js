@@ -7,7 +7,7 @@ import {
   payBill, transfer, createVirtualBalance, adminDebit, createUser,
   setUser, toggleApproval, toggleActive, toggleKyc, togglePermission,
   currentUser, isAdmin, directChildren, allDownline,
-  allowedCreateRoles, validParentsForRole
+  allowedCreateRoles, validParentsForRole, changePassword
 } from './data.js';
 
 import {
@@ -34,6 +34,7 @@ const roleLabel = r => (r || '')
   .replace('ADMIN', 'Admin');
 const userLabel = u => (u ? `${roleLabel(u.role)} — ${u.name} (${u.id})` : '—');
 const money = n => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+const formatDateTime = d => d ? new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : '-';
 const nowStr = () => new Date().toLocaleString('en-IN');
 const isToday = s => { try { return new Date(s).toDateString() === new Date().toDateString(); } catch { return false; } };
 
@@ -42,10 +43,24 @@ Object.assign(window, {
   go, renderPage, doLogin, doLogout, toggleSidebar, closeSidebar,
   fetchBill, doPay, doTransfer, doCreateBalance, doAdminDebit,
   doCreateUser, onRoleChange, doToggleApproval, doToggleActive,
-  doToggleKyc, doToggleBillPerm, doToggleTransferPerm,
+  doToggleKyc, doToggleBillPerm, doToggleTransferPerm, doEditCommission,
   applyWalletFilters, applyBillFilters, exportWalletExcel, exportBillExcel,
-  printBillTxn, downloadReceipt, shareWhatsApp, logout: doLogout
+  printBillTxn, downloadReceipt, shareWhatsApp, logout: doLogout, setup, doSetup,
+  doChangePassword, doSetCommission, refreshData
 });
+
+// Enter key support for forms
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  if (state.page === 'login') doLogin();
+  else if (state.page === 'setup') doSetup();
+});
+
+async function refreshData() {
+  if (!currentUser()) return;
+  await Promise.all([loadMe(), loadAll()]);
+  renderPage();
+}
 
 /* ---------- shells ---------- */
 
@@ -102,7 +117,7 @@ function dashShell(body) {
 /* ---------- routing ---------- */
 
 const PAGES = {
-  home, login, dashboard, bill: billPage, details, payment, receipt,
+  home, login, setup, profile: profilePage, dashboard, bill: billPage, details, payment, receipt,
   admin, wallet: walletPage, network, commission: commissionPage, activity: activityPage
 };
 
@@ -113,7 +128,8 @@ function go(p) {
 }
 
 function renderPage() {
-  if (state.page !== 'home' && state.page !== 'login' && !currentUser()) { go('login'); return; }
+  const pub = ['home', 'login', 'setup'];
+  if (!pub.includes(state.page) && !currentUser()) { go('login'); return; }
   (PAGES[state.page] || home)();
 }
 
@@ -141,11 +157,15 @@ function login() {
     <h2 style="margin:0 0 4px">Welcome back</h2>
     <p class="muted" style="margin:0 0 18px">Sign in to your EazyPay account</p>
     <label class="label">Username</label>
-    <input id="user" class="input" autocomplete="username">
+    <input id="user" class="input" autocomplete="username" placeholder="Enter your username">
     <label class="label" style="margin-top:12px">Password</label>
-    <input id="pass" type="password" class="input" autocomplete="current-password">
+    <input id="pass" type="password" class="input" autocomplete="current-password" placeholder="Enter your password">
     <div id="loginmsg" style="margin-top:12px"></div>
     <button class="btn primary" style="width:100%;margin-top:16px;justify-content:center" id="loginBtn" onclick="doLogin()">Login</button>
+    <div style="text-align:center; margin-top:20px;">
+      <p class="muted" style="margin:0 0 8px; font-size:13px;">New user approved by admin?</p>
+      <button class="btn secondary" style="width:100%;justify-content:center" onclick="go('setup')">First Time Setup</button>
+    </div>
   </div></div>`);
 }
 
@@ -167,17 +187,142 @@ async function doLogin() {
   go('dashboard');
 }
 
+function setup() {
+  publicShell(`<div class="login-wrap"><div class="card">
+    <h2 style="margin:0 0 4px">First Time Setup</h2>
+    <p class="muted" style="margin:0 0 18px">Set a password for your new account</p>
+    <label class="label">Username</label>
+    <input id="setupUser" class="input" autocomplete="username" placeholder="Provided by your admin">
+    <label class="label" style="margin-top:12px">Create Password</label>
+    <input id="setupPass" type="password" class="input" autocomplete="new-password" placeholder="Min 6 characters">
+    <div id="setupmsg" style="margin-top:12px"></div>
+    <button class="btn primary" style="width:100%;margin-top:16px;justify-content:center" id="setupBtn" onclick="doSetup()">Set Password & Login</button>
+    <div style="text-align:center; margin-top:20px;">
+      <button class="btn ghost" style="width:100%;justify-content:center" onclick="go('login')">Back to Login</button>
+    </div>
+  </div></div>`);
+}
+
+async function doSetup() {
+  const btn = $('setupBtn'), msg = $('setupmsg');
+  const username = $('setupUser').value.trim();
+  const password = $('setupPass').value;
+  
+  if (!username || !password) { msg.innerHTML = '<p class="warning">Enter username and password.</p>'; return; }
+  if (password.length < 6) { msg.innerHTML = '<p class="warning">Password must be at least 6 characters.</p>'; return; }
+
+  btn.disabled = true; btn.innerText = 'Creating account…'; msg.innerHTML = '';
+  
+  // Actually sign up via Supabase
+  const { data, error } = await supabase.auth.signUp({
+    email: username.toLowerCase() + '@zonepay.online',
+    password: password
+  });
+
+  if (error) {
+    msg.innerHTML = `<p class="fail">${esc(error.message)}</p>`;
+    btn.disabled = false; btn.innerText = 'Set Password & Login';
+    return;
+  }
+
+  // Auth only hands back a session when email confirmation is disabled. Because
+  // @zonepay.online mail is undeliverable, "Confirm email" has to be OFF in the
+  // Supabase dashboard or this account can never be signed in. Without this
+  // branch the next check reports the misleading "username was not found".
+  if (!data?.session) {
+    await supabase.auth.signOut();
+    msg.innerHTML = '<p class="fail">Account created, but the server returned no login session. '
+      + 'Email confirmation must be switched <b>OFF</b> in Supabase '
+      + '(Authentication &rarr; Providers &rarr; Email &rarr; Confirm email), '
+      + 'because mail to @zonepay.online is never delivered.</p>';
+    btn.disabled = false; btn.innerText = 'Set Password & Login';
+    return;
+  }
+
+  // Attempt to load the user profile
+  const me = await loadMe();
+  if (!me) {
+    await supabase.auth.signOut();
+    msg.innerHTML = '<p class="fail">Your username was not found. Please ensure the admin has created your account.</p>';
+    btn.disabled = false; btn.innerText = 'Set Password & Login';
+    return;
+  }
+  
+  if (!me.approved) {
+    await supabase.auth.signOut();
+    msg.innerHTML = '<p class="fail">Your account has been created but is awaiting admin approval. You cannot log in yet.</p>';
+    btn.disabled = false; btn.innerText = 'Set Password & Login';
+    return;
+  }
+
+  await loadAll();
+  go('dashboard');
+}
+
 async function doLogout() {
   await signOut();
   state.bill = null; state.payment = null;
   go('home');
 }
 
+/* ---------- profile ---------- */
+
+function profilePage() {
+  const u = currentUser();
+  dashShell(`
+    <h1 class="page-title">My Profile</h1>
+    <p class="page-sub">Account details and settings</p>
+    <div class="grid-2">
+      <div class="card">
+        <h3>Account Information</h3>
+        <table style="min-width:0">
+          <tr><td class="muted">Name</td><td><b>${esc(u.name)}</b></td></tr>
+          <tr><td class="muted">User ID</td><td>${esc(u.id)}</td></tr>
+          <tr><td class="muted">Username</td><td>${esc(u.username || '—')}</td></tr>
+          <tr><td class="muted">Role</td><td><span class="badge badge-info">${esc(roleLabel(u.role))}</span></td></tr>
+          <tr><td class="muted">Parent</td><td>${esc(u.parent || '—')}</td></tr>
+          <tr><td class="muted">Balance</td><td class="success">${money(u.balance)}</td></tr>
+          <tr><td class="muted">Commission Rate</td><td>${esc(u.commission_rate ?? 0)}%</td></tr>
+        </table>
+      </div>
+      <div class="card">
+        <h3>Status</h3>
+        <table style="min-width:0">
+          <tr><td class="muted">KYC</td><td><span class="badge ${u.kyc === 'VERIFIED' ? 'badge-ok' : 'badge-warn'}">${esc(u.kyc || 'PENDING')}</span></td></tr>
+          <tr><td class="muted">Approval</td><td><span class="badge ${u.approved ? 'badge-ok' : 'badge-warn'}">${u.approved ? 'APPROVED' : 'PENDING'}</span></td></tr>
+          <tr><td class="muted">Account</td><td><span class="badge ${u.active ? 'badge-ok' : 'badge-fail'}">${u.active ? 'ACTIVE' : 'DISABLED'}</span></td></tr>
+          <tr><td class="muted">Bill Permission</td><td>${u.permissions?.bill ? '<span class="badge badge-ok">ON</span>' : '<span class="badge badge-fail">OFF</span>'}</td></tr>
+          <tr><td class="muted">Transfer Permission</td><td>${u.permissions?.transfer ? '<span class="badge badge-ok">ON</span>' : '<span class="badge badge-fail">OFF</span>'}</td></tr>
+        </table>
+        <h3 style="margin-top:20px">Change Password</h3>
+        <label class="label">New Password</label>
+        <input id="newPass" type="password" class="input" placeholder="Min 6 characters" autocomplete="new-password">
+        <label class="label" style="margin-top:8px">Confirm Password</label>
+        <input id="confirmPass" type="password" class="input" placeholder="Re-enter password" autocomplete="new-password">
+        <button class="btn primary" style="margin-top:12px" onclick="doChangePassword()">Update Password</button>
+        <div id="passMsg" style="margin-top:10px"></div>
+      </div>
+    </div>`);
+}
+
+async function doChangePassword() {
+  const msg = $('passMsg');
+  const pw = $('newPass').value;
+  const pw2 = $('confirmPass').value;
+  if (!pw || pw.length < 6) { msg.innerHTML = '<p class="warning">Password must be at least 6 characters.</p>'; return; }
+  if (pw !== pw2) { msg.innerHTML = '<p class="warning">Passwords do not match.</p>'; return; }
+  msg.innerHTML = '<p class="muted">Updating…</p>';
+  const res = await changePassword(pw);
+  if (!res.ok) { msg.innerHTML = `<p class="fail">${esc(res.error)}</p>`; return; }
+  msg.innerHTML = '<p class="success">✅ Password updated successfully!</p>';
+  $('newPass').value = ''; $('confirmPass').value = '';
+}
+
 /* ---------- dashboard ---------- */
 
 function dashboard() {
   const u = currentUser();
-  const mine = state.tx.filter(t => t.retailerId === u.id);
+  const mine = state.tx.filter(t => t.retailer_id === u.id);
   const today = mine.filter(t => isToday(t.date));
   const down = isAdmin() ? state.users.filter(x => x.role !== 'ADMIN') : allDownline(u);
 
@@ -218,7 +363,7 @@ function dashboard() {
           <td>${esc(t.id)}</td><td>${esc(t.consumer_id)}</td><td>${esc(t.biller)}</td>
           <td>${money(t.amount)}</td>
           <td><span class="badge ${t.status === 'SUCCESS' ? 'badge-ok' : t.status === 'FAILED' ? 'badge-fail' : 'badge-warn'}">${esc(t.status)}</span></td>
-          <td>${esc(t.date)}</td></tr>`).join('') || `<tr><td colspan="6" class="empty">No transactions yet</td></tr>`}
+          <td>${formatDateTime(t.date || t.created_at)}</td></tr>`).join('') || `<tr><td colspan="6" class="empty">No transactions yet</td></tr>`}
         </tbody>
       </table></div>
     </div>`);
@@ -400,6 +545,8 @@ function payment() {
 
 async function doPay() {
   const btn = $('payBtn'), msg = $('paymsg');
+  const b = state.bill;
+  if (!confirm(`Pay ${money(b.total)} to ${b.biller} for consumer ${b.consumer}?\n\nThis debits your wallet immediately.`)) return;
   btn.disabled = true; btn.innerText = 'Processing…'; msg.innerHTML = '';
 
   const res = await payBill(state.bill);
@@ -421,7 +568,7 @@ function receipt() {
         <div class="muted" style="font-weight:800">Electricity Bill Receipt</div>
       </div>
       <div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px dashed #cbd5e1;border-bottom:1px dashed #cbd5e1;margin-bottom:14px;font-size:13px">
-        <span><b>Date:</b> ${esc(p.date)}</span>
+        <span><b>Date:</b> ${formatDateTime(p.date || p.created_at)}</span>
       </div>
       <table style="min-width:0">
         <tr><th>Service Number</th><td>${esc(b.consumer)}</td></tr>
@@ -457,7 +604,7 @@ function downloadReceipt() {
   const rows = [
     ['Retailer', `${u.name} (${u.id})`], ['Customer', b.name], ['Consumer ID', b.consumer],
     ['Provider', b.biller], ['Amount', money(b.total)], ['Txn ID', p.id],
-    ['Date', p.date], ['Verify', p.verifyCode]
+    ['Date', formatDateTime(p.date || p.created_at)], ['Verify', p.verifyCode]
   ];
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>EazyPay Receipt ${esc(p.id)}</title>
   <style>body{font-family:Arial,sans-serif;background:#f5f7fb;padding:24px}.r{max-width:520px;margin:auto;background:#fff;padding:28px;border:1px solid #ddd;border-radius:14px}
@@ -555,7 +702,7 @@ function walletPage() {
             <td>${money(t.opening_balance)}</td><td>${money(t.closing_balance)}</td>
             <td>${esc(t.user_name || '—')}<br><span class="muted">${esc(t.user_id || '')}</span></td>
             <td>${esc(t.counterparty_name || '—')}</td><td>${esc(t.by_name || '—')}</td>
-            <td>${esc(t.note || '—')}</td><td>${esc(t.date)}</td></tr>`;
+            <td>${esc(t.note || '—')}</td><td>${formatDateTime(t.date || t.created_at)}</td></tr>`;
         }).join('') : `<tr><td colspan="11"><div class="empty"><div class="ico">📒</div>No ledger entries yet</div></td></tr>`}
         </tbody>
       </table></div>
@@ -647,7 +794,10 @@ function debitBox() {
 
 async function doAdminDebit() {
   const msg = $('debitMsg');
-  const res = await adminDebit($('debitFrom').value, $('debitAmount').value, $('debitNote').value);
+  const who = state.users.find(u => u.id === $('debitFrom').value);
+  const amt = $('debitAmount').value;
+  if (!confirm(`Debit ${money(amt)} from ${who ? who.name : $('debitFrom').value}?\n\nThis removes money from the wallet immediately and cannot be undone.`)) return;
+  const res = await adminDebit($('debitFrom').value, amt, $('debitNote').value);
   if (!res.ok) { msg.innerHTML = `<p class="fail">${esc(res.error)}</p>`; return; }
   msg.innerHTML = '<p class="success">Debited and logged on both sides.</p>';
   setTimeout(renderPage, 700);
@@ -687,15 +837,26 @@ function onRoleChange() {
 
 async function doCreateUser() {
   const msg = $('createUserMsg');
-  const res = await createUser({
-    name: $('newName').value,
-    role: $('newRole').value,
-    parent: $('newParent').value,
-    username: $('newUsername').value
-  });
-  if (!res.ok) { msg.innerHTML = `<p class="fail">${esc(res.error)}</p>`; return; }
-  msg.innerHTML = `<p class="success">Created ${esc(res.id)}. Share sign-up instructions with the user.</p>`;
-  setTimeout(renderPage, 1200);
+  const name = $('newName')?.value?.trim();
+  const role = $('newRole')?.value?.trim();
+  const parent = $('newParent')?.value?.trim();
+  const username = $('newUsername')?.value?.trim();
+
+  if (!name) { msg.innerHTML = '<p class="warning">Please enter a name.</p>'; return; }
+  if (!role) { msg.innerHTML = '<p class="warning">Please select a role/layer.</p>'; return; }
+  if (!parent) { msg.innerHTML = '<p class="warning">Please select a parent.</p>'; return; }
+  if (!username) { msg.innerHTML = '<p class="warning">Please enter a username.</p>'; return; }
+  if (username.length < 3) { msg.innerHTML = '<p class="warning">Username must be at least 3 characters.</p>'; return; }
+
+  msg.innerHTML = '<p class="muted">Creating user…</p>';
+  try {
+    const res = await createUser({ name, role, parent, username });
+    if (!res.ok) { msg.innerHTML = `<p class="fail">❌ ${esc(res.error)}</p>`; return; }
+    msg.innerHTML = `<p class="success">✅ Created <b>${esc(res.id)}</b>. Tell the user:<br>1. Go to <b>zonepay.online</b><br>2. Click <b>"First Time Setup"</b><br>3. Username: <b>${esc(username)}</b>, then choose a password.</p>`;
+    setTimeout(renderPage, 1200);
+  } catch (err) {
+    msg.innerHTML = `<p class="fail">❌ ${esc(err.message)}</p>`;
+  }
 }
 
 function network() {
@@ -744,10 +905,11 @@ function powerAdminView() {
     <div class="card" style="margin-top:16px">
       <h3>All Network Users</h3>
       <div class="table-wrap"><table>
-        <thead><tr><th>Name</th><th>Layer</th><th>Parent</th><th>Balance</th><th>KYC</th><th>Approval</th><th>Account</th><th>Bill</th><th>Xfer</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Name</th><th>Layer</th><th>Parent</th><th>Balance</th><th>Rate</th><th>KYC</th><th>Approval</th><th>Account</th><th>Bill</th><th>Xfer</th><th>Actions</th></tr></thead>
         <tbody>${state.users.map(x => `<tr>
           <td>${esc(x.name)}<br><span class="muted">${esc(x.id)}</span></td>
           <td>${esc(roleLabel(x.role))}</td><td>${esc(x.parent || '—')}</td><td>${money(x.balance)}</td>
+          <td>${esc(x.commission_rate ?? 0)}%</td>
           <td><span class="badge ${x.kyc === 'VERIFIED' ? 'badge-ok' : 'badge-warn'}">${esc(x.kyc || 'PENDING')}</span></td>
           <td><span class="badge ${x.approved ? 'badge-ok' : 'badge-warn'}">${x.approved ? 'APPROVED' : 'PENDING'}</span></td>
           <td><span class="badge ${x.active ? 'badge-ok' : 'badge-fail'}">${x.active ? 'ACTIVE' : 'DISABLED'}</span></td>
@@ -758,6 +920,7 @@ function powerAdminView() {
             <button class="btn secondary" style="padding:6px 8px;font-size:12px" onclick="doToggleBillPerm('${esc(x.id)}',${!x.permissions?.bill})">Bill ${x.permissions?.bill ? 'ON' : 'OFF'}</button>
             <button class="btn secondary" style="padding:6px 8px;font-size:12px" onclick="doToggleTransferPerm('${esc(x.id)}',${!x.permissions?.transfer})">Xfer ${x.permissions?.transfer ? 'ON' : 'OFF'}</button>
             <button class="btn secondary" style="padding:6px 8px;font-size:12px" onclick="doToggleKyc('${esc(x.id)}','${x.kyc === 'VERIFIED' ? 'PENDING' : 'VERIFIED'}')">KYC</button>
+            <button class="btn secondary" style="padding:6px 8px;font-size:12px" onclick="doEditCommission('${esc(x.id)}')">Rate</button>
           </div>`}</td>
         </tr>`).join('')}</tbody>
       </table></div>
@@ -771,11 +934,28 @@ const act = async (fn, msgId) => {
   if (!res.ok) { if (msg) msg.innerHTML = `<p class="fail">${esc(res.error)}</p>`; return; }
   if (msg) msg.innerHTML = '<p class="success">Updated.</p>';
 };
-function doToggleApproval(id, next) { return act(() => toggleApproval(id, next)); }
-function doToggleActive(id, next) { return act(() => toggleActive(id, next)); }
-function doToggleKyc(id, next) { return act(() => toggleKyc(id, next)); }
-function doToggleBillPerm(id, next) { return act(() => togglePermission(id, 'bill', next)); }
-function doToggleTransferPerm(id, next) { return act(() => togglePermission(id, 'transfer', next)); }
+function doToggleApproval(id, next) {
+  if (!next && !confirm(`Revoke approval for ${id}?\n\nThey will lose access immediately.`)) return;
+  return act(() => toggleApproval(id, next)).then(renderPage);
+}
+function doToggleActive(id, next) {
+  if (!next && !confirm(`Disable account ${id}?\n\nThey are locked out immediately.`)) return;
+  return act(() => toggleActive(id, next)).then(renderPage);
+}
+function doToggleKyc(id, next) { return act(() => toggleKyc(id, next)).then(renderPage); }
+function doToggleBillPerm(id, next) { return act(() => togglePermission(id, 'bill', next)).then(renderPage); }
+function doToggleTransferPerm(id, next) { return act(() => togglePermission(id, 'transfer', next)).then(renderPage); }
+
+// app_admin_set_user already allow-lists 'commission_rate'; this just exposes it.
+function doEditCommission(id) {
+  const u = state.users.find(x => x.id === id);
+  if (!u) return;
+  const raw = prompt(`Commission rate for ${u.name} (${u.id})\n\nEnter a percentage between 0 and 100.`, String(u.commission_rate ?? 0));
+  if (raw === null) return;
+  const val = Number(String(raw).trim());
+  if (!Number.isFinite(val) || val < 0 || val > 100) { alert('Enter a number between 0 and 100.'); return; }
+  return act(() => setUser(id, 'commission_rate', val)).then(renderPage);
+}
 
 /* ---------- transactions ---------- */
 
@@ -822,7 +1002,7 @@ function admin() {
           <td>${esc(x.consumer_id)}</td><td>${esc(x.biller)}</td>
           <td>${money(x.amount)}</td><td>${money(x.commission || 0)}</td>
           <td><span class="badge ${x.status === 'FAILED' ? 'badge-fail' : x.status === 'SUCCESS' ? 'badge-ok' : 'badge-warn'}">${esc(x.status)}</span></td>
-          <td>${esc(x.date)}</td>
+          <td>${formatDateTime(x.date || x.created_at)}</td>
           <td><button class="btn secondary" style="padding:6px 10px;font-size:12px" onclick="printBillTxn('${esc(x.id)}')">Print</button></td>
         </tr>`).join('') || `<tr><td colspan="9" class="empty">No transactions</td></tr>`}</tbody>
       </table></div>
@@ -855,7 +1035,7 @@ function printBillTxn(id) {
       <tr><td>Consumer</td><td>${esc(x.consumer_id)}</td></tr>
       <tr><td>Biller</td><td>${esc(x.biller)}</td></tr>
       <tr><td>Amount</td><td>${money(x.amount)}</td></tr>
-      <tr><td>Date</td><td>${esc(x.date)}</td></tr>
+      <tr><td>Date</td><td>${formatDateTime(x.date || x.created_at)}</td></tr>
     </table><script>onload=()=>print()<\/script></body></html>`);
   w.document.close();
 }
@@ -891,7 +1071,7 @@ function commissionPage() {
       <thead><tr><th>Txn ID</th><th>Retailer</th><th>Amount</th><th>Commission</th><th>Date</th></tr></thead>
       <tbody>${scope.filter(t => Number(t.commission) > 0).map(t => `<tr>
         <td>${esc(t.id)}</td><td>${esc(t.retailer_name)}</td><td>${money(t.amount)}</td>
-        <td class="success">${money(t.commission)}</td><td>${esc(t.date)}</td>
+        <td class="success">${money(t.commission)}</td><td>${formatDateTime(t.date || t.created_at)}</td>
       </tr>`).join('') || `<tr><td colspan="5" class="empty">No commission yet</td></tr>`}</tbody>
     </table></div></div>`);
 }
@@ -905,7 +1085,7 @@ function activityPage() {
     <div class="card"><div class="table-wrap"><table>
       <thead><tr><th>Time</th><th>User</th><th>Role</th><th>Action</th><th>Detail</th></tr></thead>
       <tbody>${rows.length ? rows.slice(0, 100).map(a => `<tr>
-        <td>${esc(a.date)}</td>
+        <td>${formatDateTime(a.date || a.created_at)}</td>
         <td>${esc(a.user_name || '—')}<br><span class="muted">${esc(a.user_id || '')}</span></td>
         <td>${esc(roleLabel(a.user_role || ''))}</td>
         <td><span class="badge badge-info">${esc(a.action)}</span></td><td>${esc(a.detail || '—')}</td>
