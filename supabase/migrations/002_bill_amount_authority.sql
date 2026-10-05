@@ -120,11 +120,9 @@ BEGIN
     RETURN QUERY SELECT false, NULL, 'Signature rejected'::text; RETURN;
   END IF;
 
-  BEGIN
-    v_amount := p_amount_text::numeric;
-  EXCEPTION WHEN others THEN
-    RETURN QUERY SELECT false, NULL, 'Invalid amount'::text; RETURN;
-  END IF;
+  -- Safe to cast without an exception handler: the pattern check above has
+  -- already guaranteed p_amount_text is a plain decimal number.
+  v_amount := p_amount_text::numeric;
 
   IF v_amount <= 0 THEN
     RETURN QUERY SELECT false, NULL, 'Invalid amount'::text; RETURN;
