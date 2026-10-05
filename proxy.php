@@ -47,8 +47,8 @@ if (isset($_GET['diag'])) {
         'curl'         => function_exists('curl_init') ? 'yes' : 'no',
         'APICLUB_KEY'  => env_or_null('APICLUB_KEY')      ? 'set' : 'MISSING',
         'BILL_HMAC_SECRET' => env_or_null('BILL_HMAC_SECRET') ? 'set' : 'MISSING',
-        'SUPABASE_URL' => env_or_null('SUPABASE_URL')     ? 'set' : 'MISSING',
-        'SUPABASE_ANON_KEY' => env_or_null('SUPABASE_ANON_KEY') ? 'set' : 'MISSING',
+        'SUPABASE_URL' => env_or_null('SUPABASE_URL')     ? 'env' : 'defaulted in code',
+        'SUPABASE_ANON_KEY' => env_or_null('SUPABASE_ANON_KEY') ? 'env' : 'defaulted in code',
     ));
 }
 
@@ -63,14 +63,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 
 $apiKey = env_or_null('APICLUB_KEY');
 $secret = env_or_null('BILL_HMAC_SECRET');
-$supabaseUrl = env_or_null('SUPABASE_URL');
-$supabaseKey = env_or_null('SUPABASE_ANON_KEY');
 
-if (!$apiKey)      { jout(500, array('error' => 'Server not configured: APICLUB_KEY is missing')); }
-if (!$secret)      { jout(500, array('error' => 'Server not configured: BILL_HMAC_SECRET is missing')); }
-if (!$supabaseUrl || !$supabaseKey) {
-    jout(500, array('error' => 'Server not configured: SUPABASE_URL / SUPABASE_ANON_KEY missing'));
-}
+// The project URL and publishable key are public by design (the same pair ships
+// in data.js for the browser), so they are defaulted here and only need to be
+// set as env vars if you ever point this at a different project. BILL_HMAC_SECRET
+// has no default on purpose: it is the trust anchor and must stay server-side.
+$supabaseUrl = env_or_null('SUPABASE_URL');
+if (!$supabaseUrl) { $supabaseUrl = 'https://ivvtryddebbizflmvdzz.supabase.co'; }
+$supabaseKey = env_or_null('SUPABASE_ANON_KEY');
+if (!$supabaseKey) { $supabaseKey = 'sb_publishable_MHevw7ZOWkf8vocACWhzeQ_dViUPHdU'; }
+
+if (!$apiKey) { jout(500, array('error' => 'Server not configured: APICLUB_KEY is missing')); }
+if (!$secret) { jout(500, array('error' => 'Server not configured: BILL_HMAC_SECRET is missing')); }
 if (!function_exists('curl_init')) { jout(500, array('error' => 'PHP cURL extension is not enabled')); }
 
 $raw = file_get_contents('php://input');
