@@ -61,6 +61,10 @@ AS $$
 $$;
 
 -- Descendants of a user, at any depth (server-side hierarchy walk)
+-- Dropped rather than replaced: this function was LANGUAGE sql and is now
+-- LANGUAGE plpgsql (it needs an auth guard), which CREATE OR REPLACE refuses
+-- to change on an existing function.
+DROP FUNCTION IF EXISTS app_downline(text);
 CREATE OR REPLACE FUNCTION app_downline(p_user_id text)
 RETURNS TABLE(id text, name text, role text, parent text, balance numeric)
 LANGUAGE plpgsql
